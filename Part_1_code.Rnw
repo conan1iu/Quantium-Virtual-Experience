@@ -1,0 +1,409 @@
+\documentclass[]{article}
+
+\usepackage{graphicx} %these are packages which help the formatting of this document
+\usepackage{hyperref} 
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{times}
+\usepackage{titling}
+\usepackage[T1]{fontenc}
+\usepackage{tgpagella}
+\usepackage{booktabs}
+
+
+\usepackage{float}
+\usepackage[margin=1in]{geometry}
+
+\hypersetup{unicode=true,
+            pdftitle={Quantium Part 1},
+            pdfauthor={Conan Liu},
+            pdfborder={0 0 0},
+            breaklinks=true}
+
+\textwidth=6in %these help the layout of the document
+\textheight=8in
+%\parskip=.3cm
+\oddsidemargin=0.1in
+\evensidemargin=0.1in
+\headheight=-0.3in
+
+\usepackage[noae]{Sweave}
+
+\setkeys{Gin}{width=1\textwidth}
+
+
+\begin{document}
+
+\begin{titlepage}
+	\begin{center}
+    
+    \vfill
+    
+		\textbf{\Huge{Quantium Part 1}}
+		
+		\vspace{1.5cm}
+		
+		\textbf{\huge{Conan Liu}}
+	
+		\vfill
+		
+	\end{center}
+
+\end{titlepage}
+
+\tableofcontents
+
+\newpage
+
+<<echo=F, eval=T, message = F>>=
+
+library(rpart)
+
+library(ggthemr)
+ggthemr('fresh')
+
+library(dplyr)
+
+library(tidyverse)
+
+library(data.table)
+
+library(readr)
+
+
+library(modelr)
+
+library(formattable)
+
+library(ggplot2)
+
+library(tidyr)
+
+library(egg)
+
+options(max.print = 5)
+
+knitr::opts_chunk$set(comment = NA, echo = TRUE, eval = TRUE, tidy.opts=list(width.cutoff=20),tidy=TRUE, cache = F, message = FALSE, warning = FALSE)
+@
+
+\section{Introductory notes}
+
+The client is particularly interested in customer segments and their chip purchasing behaviour. Need to consider what metrics would help describe the customers’ purchasing behaviour.  
+
+Need to, initially:
+\begin{enumerate}[label=(\roman*)]
+
+\item Create and interpret high level summaries of the data
+\item Find outliers and remove them (if applicable)
+\item Check data formats and correcting (if applicable)
+
+\end{enumerate}
+
+Also need to derive extra features such as pack size and brand name from the data and define metrics of interest to enable insights to be drawn on who spends on chips and what drives spends for each customer segment. End goal is to form a strategy based on the findings to provide a clear recommendation to Julia the Category Manager so insights need to yield commercial action.
+
+
+
+Data analysis and customer segments – in your analysis make sure you define the metrics – look at total sales, drivers of sales, where the highest sales are coming from etc. Explore the data, create charts and graphs as well as noting any interesting trends and/or insights you find. These will all form part of our report to Julia. 
+
+Deep dive into customer segments – define your recommendation from your insights, determine which segments we should be targeting, if packet sizes are relative and form an overall conclusion based on your analysis. 
+
+<<echo = F, eval = T>>=
+
+library(readr)
+library(stringr)
+
+setwd("~/Desktop/Forage/Quantium")
+
+transactions <- read_csv("QVItransactiondata.csv")
+
+behaviour <- read_csv("QVI_purchase_behaviour.csv")
+
+@
+
+We should 'look' at the transactions and behaviour data initially:
+
+<<eval = T, echo = T>>=
+head(transactions)
+names(transactions)
+
+head(behaviour)
+names(behaviour)
+@
+
+Checking dimensions:
+
+<<>>=
+dim(transactions)
+dim(behaviour)
+@
+
+Loyalty card number is a unique form of ID, so we should see if the datasets are the same 'size' based on unique customers.
+
+<<>>=
+length(unique(transactions$LYLTY_CARD_NBR)) == 
+length(unique(behaviour$LYLTY_CARD_NBR))
+@
+
+They are, so we can merge by card number.
+
+<<>>=
+combi <- merge(transactions, behaviour, by="LYLTY_CARD_NBR")
+@
+
+Now we have obtained a merged dataset, we should clean it up. First things first, check missing values.
+
+<<>>=
+colSums(is.na(combi))
+@
+
+Looks good. The dataset seems pretty clean already but we should treat any outliers here instead of in pre-modeling. Since total sales reflects product quantity, the only variable that could logically hold outliers is product quantity.
+
+<<>>=
+range(combi$PROD_QTY)
+@
+
+<<>>=
+combi <- combi[-c(which(combi$PROD_QTY == 200)),]
+
+range(combi$PROD_QTY)
+
+dim(combi)
+
+rownames(combi) <- NULL
+@
+
+\section{Feature engineering:}
+
+We should isolate some package sizings and brands. It seems most brands are one word long, e.g. 'Pringles'. The few that are longer, e.g. 'Red Rock Deli', should be unique in their first word, e.g. 'Red'. We must take this as an assumption. Taking the first word of a product name is also a good strategy as if we look at the product names,
+
+<<echo=T, eval=T>>=
+head(combi$PROD_NAME, 4)
+@
+
+The first entry shows "Natural Chip Compny" and the fourth entry shows "Natural ChipCo". These are the same natural chip company. If we take the first word only, we yield "Natural" and both entries will then simply identify under the same brand. 
+
+<<echo = T,>>=
+combi$BRAND_NAME <- word(combi$PROD_NAME, 1)
+@
+
+We should check for further inconsistencies in the data now:
+
+<<>>=
+unique(combi$BRAND_NAME)
+@
+
+Clearly, there are still several inconsistencies within the brand naming. For example, it can be seen "RRD" and "Red Rock Deli" co-exist as unique names; "Grain" which was part of "Grain Waves" co-exists with "GrnWves"; and "Sunbites" is additionally unique to "Snbts". There are more overlapping unique terms. We need to combine them. 
+
+<<>>=
+combi$BRAND_NAME <- ifelse(combi$BRAND_NAME == "Natural", "Natural Chip Co",
+                    ifelse(combi$BRAND_NAME == "Red", "Red Rock Deli",
+                    ifelse(combi$BRAND_NAME == "Grain", "Grain Waves",
+                    ifelse(combi$BRAND_NAME == "RRD", "Red Rock Deli",
+                    ifelse(combi$BRAND_NAME == "Old", "Old El Paso",
+                    ifelse(combi$BRAND_NAME == "GrnWves", "Grain Waves",
+                    ifelse(combi$BRAND_NAME == "Snbts", "Sunbites",
+                    ifelse(combi$BRAND_NAME == "Infzns", "Infuzions",
+                    ifelse(combi$BRAND_NAME == "Dorito", "Doritos",
+                    ifelse(combi$BRAND_NAME == "NCC", "Natural Chip Co",
+                    combi$BRAND_NAME))))))))))
+@
+
+Let's check our brand names again:
+
+<<>>=
+unique(combi$BRAND_NAME)
+@
+
+Looks good. Moving on. We can isolate the package weights using readr, as there is only one string of numbers in each product name:
+
+<<>>=
+combi$WEIGHT <- parse_number(combi$PROD_NAME)
+@
+
+Checking,
+
+<<>>=
+combi$WEIGHT
+@
+
+Nice. Just checking,
+
+<<>>=
+combi$WEIGHT <- as.numeric(combi$WEIGHT)
+
+range(combi$WEIGHT)
+@
+
+We can also find the price of each product by dividing total sales by product quantity. This step should be verified with more external information, such as whether products were on sale. We will have to assume products were not on sale. 
+
+<<>>=
+combi$PROD_PRICE <- combi$TOT_SALES/combi$PROD_QTY
+@
+
+
+
+
+
+\section{Exploratory Data Analysis}
+
+<<>>=
+ggplot(combi, aes(x = WEIGHT, y = TOT_SALES)) +
+  geom_bin2d(bins = 35) +
+  scale_fill_continuous(low = "navy", high = "pink", name = "Occurrences") +
+  xlab("Weight (g)") +
+  ylab("Total sales (dollars)") +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        legend.position ="right",
+        axis.text.x = element_text(angle = 0, vjust = 1, size = 8, hjust = 1))
+@
+
+It is clear around 175g packages sell the best. Notable mention goes to around 300g packages (value per g would perhaps increase).  
+
+<<echo = T, eval = T, output = F>>=
+LIFEREV <- combi %>% group_by(LIFESTAGE) %>% summarise(REVENUE = sum(TOT_SALES))
+LIFEREV <- LIFEREV %>% arrange(REVENUE)
+LIFEREV$LIFESTAGE <- factor(LIFEREV$LIFESTAGE, levels = LIFEREV$LIFESTAGE)
+
+g1 <- ggplot(LIFEREV, aes(x = LIFESTAGE, y = REVENUE)) +
+  geom_bar(stat = "identity") + 
+  ggtitle("Revenue distribution by customer life stage") +
+  xlab("Life stage of customer") +
+  scale_y_continuous(name = "Price (AUD)", labels = scales::comma) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1))
+@
+
+<<echo = T, eval = T, output = F>>=
+LIFECOUNT <- combi %>% group_by(LIFESTAGE) %>% summarise(COUNT = n())
+LIFECOUNT <- LIFECOUNT %>% arrange(COUNT)
+LIFECOUNT$LIFESTAGE <- factor(LIFECOUNT$LIFESTAGE, levels = LIFECOUNT$LIFESTAGE)
+
+g2 <- ggplot(LIFECOUNT, aes(x = LIFESTAGE, y = COUNT)) +
+  geom_bar(stat = "identity") + 
+  ggtitle("Distribution of customer life stage") +
+  xlab("Life stage of customer") +
+  scale_y_continuous(name = "Count", labels = scales::comma) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1))
+@
+
+<<>>=
+ggarrange(g1, g2, ncol = 2)
+@
+
+While life stage does seem to influence revenue initially, it is clearly due to the distribution of the customer base. Having said this, older singles and couples are yielding the highest conversion rates. We should also look at customer quality:
+
+<<echo = T, eval = T, output = F>>=
+PREM <- combi %>% group_by(PREMIUM_CUSTOMER) %>% summarise(REVENUE = sum(TOT_SALES))
+PREM <- PREM %>% arrange(REVENUE)
+PREM$PREMIUM_CUSTOMER <- factor(PREM$PREMIUM_CUSTOMER, levels = PREM$PREMIUM_CUSTOMER)
+
+g3 <- ggplot(PREM, aes(x = PREMIUM_CUSTOMER, y = REVENUE)) +
+  geom_bar(stat = "identity") + 
+  ggtitle("Revenue distribution by customer quality") +
+  xlab("Life stage of customer") +
+  scale_y_continuous(name = "Price (AUD)", labels = scales::comma) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1))
+@
+
+<<echo = T, eval = T, output = F>>=
+PREMC <- combi %>% group_by(PREMIUM_CUSTOMER) %>% summarise(COUNT = n())
+PREMC <- PREMC %>% arrange(COUNT)
+PREMC$PREMIUM_CUSTOMER <- factor(PREMC$PREMIUM_CUSTOMER, levels = PREMC$PREMIUM_CUSTOMER)
+
+g4 <- ggplot(PREMC, aes(x = PREMIUM_CUSTOMER, y = COUNT)) +
+  geom_bar(stat = "identity") + 
+  ggtitle("Distribution of customer life stage") +
+  xlab("Life stage of customer") +
+  scale_y_continuous(name = "Count", labels = scales::comma) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1))
+@
+
+<<>>=
+ggarrange(g3, g4, ncol = 2)
+@
+
+It is clear that mainstream customers contribute the most. However, there is a lot of room for growth with premium customers and budget customers. They should be areas of focus for growth. 
+
+Among other areas of growth, we can view the most and least 'popular' stores. 
+
+<<>>=
+STt5 <- combi %>% group_by(STORE_NBR) %>% summarise(COUNT = n()) 
+STt5 <- STt5 %>% arrange(-COUNT) %>% dplyr::slice(1:5)
+STt5 <- as.data.frame(STt5)
+library(systemfonts)
+library(kableExtra)
+@
+
+\begin{center}
+<<>>=
+kbl(STt5)
+@
+\end{center}
+
+Also the bottom 5 stores as areas for growth. 
+
+<<>>=
+STb5 <- combi %>% group_by(STORE_NBR) %>% summarise(COUNT = n()) 
+STb5 <- STb5 %>% arrange(COUNT) %>% dplyr::slice(1:5)
+STb5 <- as.data.frame(STb5)
+library(systemfonts)
+library(kableExtra)
+@
+
+\begin{center}
+<<>>=
+kbl(STb5)
+@
+\end{center}
+
+These stores would need further investigation as to why they are performing so poorly. Future study could occur here. We could check date of transactions:
+
+<<>>=
+combi[which(combi$STORE_NBR == 76),2]
+combi[which(combi$STORE_NBR == 92),2]
+combi[which(combi$STORE_NBR == 11),2]
+combi[which(combi$STORE_NBR == 31),2]
+combi[which(combi$STORE_NBR == 206),2]
+@
+
+Notably store 92 has a late transaction date (relative to dates gathered). This could mean store was recently built and not enough traction yet. But store 206 has two dates quite far apart in the year. This is not good.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\end{document}

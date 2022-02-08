@@ -1,0 +1,171 @@
+\documentclass[]{article}
+
+\usepackage{graphicx} %these are packages which help the formatting of this document
+\usepackage{hyperref} 
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{times}
+\usepackage{titling}
+\usepackage[T1]{fontenc}
+\usepackage{tgpagella}
+\usepackage{booktabs}
+
+
+\usepackage{float}
+\usepackage[margin=1in]{geometry}
+
+\hypersetup{unicode=true,
+            pdftitle={Quantium Part 1},
+            pdfauthor={Conan Liu},
+            pdfborder={0 0 0},
+            breaklinks=true}
+
+\textwidth=6in %these help the layout of the document
+\textheight=8in
+%\parskip=.3cm
+\oddsidemargin=0.1in
+\evensidemargin=0.1in
+\headheight=-0.3in
+
+\usepackage[noae]{Sweave}
+
+\setkeys{Gin}{width=1\textwidth}
+
+
+\begin{document}
+
+\begin{titlepage}
+	\begin{center}
+    
+    \vfill
+    
+		\textbf{\Huge{Quantium Part 2}}
+		
+		\vspace{1.5cm}
+		
+		\textbf{\huge{Conan Liu}}
+	
+		\vfill
+		
+	\end{center}
+
+\end{titlepage}
+
+\tableofcontents
+
+\newpage
+
+<<echo=F, eval=T, message = F>>=
+
+library(rpart)
+
+library(ggthemr)
+ggthemr('fresh')
+
+library(dplyr)
+
+library(tidyverse)
+
+library(data.table)
+
+library(readr)
+
+
+library(modelr)
+
+library(formattable)
+
+library(ggplot2)
+
+library(tidyr)
+
+library(egg)
+
+options(max.print = 5)
+
+knitr::opts_chunk$set(comment = NA, echo = TRUE, eval = TRUE, tidy.opts=list(width.cutoff=20),tidy=TRUE, cache = F, message = FALSE, warning = FALSE)
+@
+
+\section{Introductory notes}
+
+We need to consider traits of each store and determine several control stores. These controls should act as benchmarks to compare our trial stores to - stores which underwent a trial period. To determine controls we should break down:
+
+\begin{enumerate}[label=(\roman*)]
+
+\item total sales revenue
+\item total number of customers
+\item average number of transactions per customer
+
+\end{enumerate}
+
+We should conduct a time series analysis. 
+
+<<echo = F, eval = T>>=
+
+library(readr)
+library(stringr)
+
+setwd("~/Desktop/Forage/Quantium")
+
+transactions <- read_csv("QVItransactiondata.csv")
+
+behaviour <- read_csv("QVI_purchase_behaviour.csv")
+
+@
+
+
+<<echo = F>>=
+combi <- merge(transactions, behaviour, by="LYLTY_CARD_NBR")
+
+combi <- combi[-c(which(combi$PROD_QTY == 200)),]
+
+rownames(combi) <- NULL
+
+combi$BRAND_NAME <- word(combi$PROD_NAME, 1)
+
+combi$BRAND_NAME <- ifelse(combi$BRAND_NAME == "Natural", "Natural Chip Co",
+                    ifelse(combi$BRAND_NAME == "Red", "Red Rock Deli",
+                    ifelse(combi$BRAND_NAME == "Grain", "Grain Waves",
+                    ifelse(combi$BRAND_NAME == "RRD", "Red Rock Deli",
+                    ifelse(combi$BRAND_NAME == "Old", "Old El Paso",
+                    ifelse(combi$BRAND_NAME == "GrnWves", "Grain Waves",
+                    ifelse(combi$BRAND_NAME == "Snbts", "Sunbites",
+                    ifelse(combi$BRAND_NAME == "Infzns", "Infuzions",
+                    ifelse(combi$BRAND_NAME == "Dorito", "Doritos",
+                    ifelse(combi$BRAND_NAME == "NCC", "Natural Chip Co",
+                    combi$BRAND_NAME))))))))))
+
+combi$WEIGHT <- parse_number(combi$PROD_NAME)
+
+combi$WEIGHT <- as.numeric(combi$WEIGHT)
+
+range(combi$WEIGHT)
+
+combi$PROD_PRICE <- combi$TOT_SALES/combi$PROD_QTY
+@
+
+We should inspect the date variable.
+
+<<>>=
+range(combi$DATE)
+@
+
+It appears the date variable is a sequence of numbers from 43282 to 43646. 
+
+<<>>=
+dates <- unique(combi$DATE)
+dates <- as.numeric(dates)
+dates[order(dates)]
+@
+
+The variable runs from (43) 282 to 646 then. Assuming each month has 30 days, we can split the 364 days up by months.
+
+
+
+
+
+
+
+
+
+\end{document}
